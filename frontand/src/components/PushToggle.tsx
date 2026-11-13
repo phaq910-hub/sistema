@@ -8,13 +8,13 @@ import { errorMessage } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /** Header button: turns phone push notifications on/off and explains installation. */
-export function PushToggle() {
+export function PushToggle({ technician = false }: { technician?: boolean }) {
   const [state, setState] = useState<PushState | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void getPushState().then(setState);
+    void getPushState().then(setState).catch(() => setState(null));
   }, []);
 
   const run = async (fn: () => Promise<PushState>, ok?: string) => {
@@ -49,7 +49,9 @@ export function PushToggle() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Notificações no celular</DialogTitle>
-            <DialogDescription>Receba um alerta quando o cliente aprovar/recusar um orçamento e quando o técnico concluir o serviço — mesmo com o app fechado.</DialogDescription>
+            <DialogDescription>{technician
+              ? "Receba um alerta quando uma ordem de serviço for atribuída a você, mesmo com o app fechado."
+              : "Receba um alerta quando o cliente aprovar/recusar um orçamento e quando o técnico concluir o serviço — mesmo com o app fechado."}</DialogDescription>
           </DialogHeader>
 
           {state === "needs-install" && (
@@ -79,7 +81,8 @@ export function PushToggle() {
                   onClick={async () => {
                     try {
                       const r = await sendTestPush();
-                      toast.success(`Teste enviado para ${r.devices} aparelho(s)`);
+                      if (r.devices) toast.success(`Teste enviado para ${r.devices} aparelho(s)`);
+                      else toast.error("Nenhum aparelho desta conta recebeu o teste.");
                     } catch (e) {
                       toast.error(errorMessage(e));
                     }

@@ -35,7 +35,9 @@ export async function getPushState(): Promise<PushState> {
   if (Notification.permission === "denied") return "denied";
   const reg = await navigator.serviceWorker.getRegistration();
   const sub = await reg?.pushManager.getSubscription();
-  return sub && Notification.permission === "granted" ? "on" : "off";
+  if (!sub || Notification.permission !== "granted") return "off";
+  const { active } = await apiPost<{ active: boolean }>("/push/status", { endpoint: sub.endpoint });
+  return active ? "on" : "off";
 }
 
 /** Must be called from a click (iOS requirement). */
@@ -54,8 +56,8 @@ export async function disablePush(): Promise<PushState> {
   const reg = await navigator.serviceWorker.getRegistration();
   const sub = await reg?.pushManager.getSubscription();
   if (sub) {
-    await apiPost("/push/unsubscribe", { endpoint: sub.endpoint });
-    await sub.unsubscribe();
+    const { removed } = await apiPost<{ removed: boolean }>("/push/unsubscribe", { endpoint: sub.endpoint });
+    if (removed) await sub.unsubscribe();
   }
   return "off";
 }

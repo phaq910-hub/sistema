@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Send, FileText, Wrench, Trash2, MapPin, Copy, FileCheck2, Images, Star, CheckCheck } from "lucide-react";
+import { Plus, Send, FileText, Wrench, Trash2, MapPin, Copy, FileCheck2, Images, Star, CheckCheck, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, PageHeader } from "@/components/AdminLayout";
 import { QuoteFormDialog, ShareQuoteDialog } from "@/components/QuoteForm";
@@ -24,11 +24,13 @@ export function QuotesPage() {
   const { data: quotes = [] } = useQuotes();
   const [filter, setFilter] = useState<"todos" | "pendente" | "aprovado" | "recusado">("todos");
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Quote | null>(null);
   const [share, setShare] = useState<Quote | null>(null);
   const del = useMutation({
     mutationFn: (id: string) => apiDelete(`/quotes/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["tickets"] });
       toast.success("Orçamento excluído");
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -95,10 +97,25 @@ export function QuotesPage() {
                       <Button size="sm" variant="outline" data-testid={`quote-share-${q.number}`} onClick={() => setShare(q)}>
                         <Send className="size-3.5" /> Enviar
                       </Button>
-                      {q.status === "pendente" && (
-                        <Button size="icon-sm" variant="ghost" aria-label="Excluir" data-testid={`quote-delete-${q.number}`} onClick={() => window.confirm("Excluir orçamento?") && del.mutate(q.id)}>
-                          <Trash2 className="size-3.5" />
-                        </Button>
+                      {(q.status === "pendente" || q.status === "aprovado") && (
+                        <>
+                          <Button size="icon-sm" variant="ghost" aria-label="Editar orçamento" title="Editar" data-testid={`quote-edit-${q.number}`} onClick={() => setEditing(q)}>
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label="Excluir"
+                            title="Excluir"
+                            disabled={del.isPending}
+                            data-testid={`quote-delete-${q.number}`}
+                            onClick={() => window.confirm(q.status === "aprovado"
+                              ? `Excluir o orçamento #${q.number} da lista? A OS e o financeiro serão preservados.`
+                              : `Excluir o orçamento #${q.number} e desativar o link de aprovação?`) && del.mutate(q.id)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </>
                       )}
                     </div>
                   </TableCell>
@@ -109,6 +126,9 @@ export function QuotesPage() {
         )}
       </div>
       <QuoteFormDialog open={formOpen} onOpenChange={setFormOpen} onCreated={setShare} />
+      {editing && (
+        <QuoteFormDialog key={editing.id} quote={editing} open onOpenChange={(open) => !open && setEditing(null)} onCreated={setShare} />
+      )}
       <ShareQuoteDialog quote={share} onClose={() => setShare(null)} />
     </div>
   );

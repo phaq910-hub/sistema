@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { errorMessage, money, publicUrl, whatsappLink } from "@/lib/format";
 import type { CatalogItem, PublicCompany, Quote, QuoteCreate, Ticket, User } from "@/lib/types";
 import { ClientPicker } from "@/components/ClientPicker";
@@ -103,23 +103,37 @@ export function QuoteFormDialog({
   onOpenChange,
   onCreated,
   ticket = null,
+  quote = null,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onCreated: (q: Quote) => void;
   ticket?: Ticket | null;
+  quote?: Quote | null;
 }) {
   const qc = useQueryClient();
   const { data: techs = [] } = useQuery({ queryKey: ["technicians"], queryFn: () => apiGet<User[]>("/technicians") });
   const { data: catalog = [] } = useQuery({ queryKey: ["catalog"], queryFn: () => apiGet<CatalogItem[]>("/catalog") });
-  const [client, setClient] = useState({ name: "", phone: "", email: "", address: "" });
-  const [clientId, setClientId] = useState("");
-  const [ticketId, setTicketId] = useState<string | null>(null);
-  const [items, setItems] = useState<ItemDraft[]>([emptyItem()]);
-  const [discount, setDiscount] = useState("0");
-  const [validUntil, setValidUntil] = useState(plusDays(15));
-  const [notes, setNotes] = useState("");
-  const [techId, setTechId] = useState(NONE);
+  const [client, setClient] = useState(() => ({
+    name: quote?.client_name ?? "",
+    phone: quote?.client_phone ?? "",
+    email: quote?.client_email ?? "",
+    address: quote?.client_address ?? "",
+  }));
+  const [clientId, setClientId] = useState(quote?.client_id ?? "");
+  const [ticketId, setTicketId] = useState<string | null>(quote?.ticket_id ?? null);
+  const [items, setItems] = useState<ItemDraft[]>(() => quote?.items.length
+    ? quote.items.map((item) => ({
+        key: crypto.randomUUID(),
+        description: item.description,
+        quantity: String(item.quantity),
+        unit_price: String(item.unit_price),
+      }))
+    : [emptyItem()]);
+  const [discount, setDiscount] = useState(String(quote?.discount ?? 0));
+  const [validUntil, setValidUntil] = useState(() => quote?.valid_until ?? plusDays(15));
+  const [notes, setNotes] = useState(quote?.notes ?? "");
+  const [techId, setTechId] = useState(quote?.technician_id ?? NONE);
 
   const parsed = items.map((i) => ({
     description: i.description.trim(),
@@ -158,23 +172,33 @@ export function QuoteFormDialog({
     setTechId(NONE);
   };
 
-  const create = useMutation({
-    mutationFn: (body: QuoteCreate) => apiPost<Quote>("/quotes", body),
+  const save = useMutation({
+    mutationFn: (body: QuoteCreate) => quote
+      ? apiPut<Quote>(`/quotes/${quote.id}`, body)
+      : apiPost<Quote>("/quotes", body),
     onSuccess: (q) => {
       qc.invalidateQueries({ queryKey: ["quotes"] });
-      toast.success(`Orçamento #${q.number} criado`);
-      reset();
-      onOpenChange(false);
-      onCreated(q);
+      if (quote) {
+        qc.invalidateQueries({ queryKey: ["public-quote", q.id] });
+        qc.invalidateQueries({ queryKey: ["orders"] });
+        qc.invalidateQueries({ queryKey: ["finance"] });
+        toast.success(`Orçamento #${q.number} atualizado`);
+        onOpenChange(false);
+      } else {
+        toast.success(`Orçamento #${q.number} criado`);
+        reset();
+        onOpenChange(false);
+        onCreated(q);
+      }
     },
-    onError: (e) => toast.error(errorMessage(e, "Não foi possível criar o orçamento")),
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível salvar o orçamento")),
   });
 
   const submit = () => {
     if (!client.name.trim()) return toast.error("Informe o nome do cliente");
     const valid = parsed.filter((i) => i.description && i.quantity > 0);
     if (!valid.length) return toast.error("Adicione ao menos um item com descrição e quantidade");
-    create.mutate({
+    save.mutate({
       client_name: client.name.trim(),
       client_phone: client.phone.trim(),
       client_email: client.email.trim(),
@@ -196,7 +220,7 @@ export function QuoteFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle className="font-heading text-xl">Novo orçamento</DialogTitle>
+          <DialogTitle className="font-heading text-xl">{quote ? `Editar orçamento #${quote.number}` : "Novo orçamento"}</DialogTitle>
           <DialogDescription>Preencha os dados do cliente, os itens e a validade da proposta.</DialogDescription>
         </DialogHeader>
 
@@ -273,8 +297,8 @@ export function QuoteFormDialog({
             <Input id="q-valid" type="date" data-testid="quote-valid-until-input" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label>Técnico (ao aprovar)</Label>
-            <Select value={techId} onValueChange={(v: string) => setTechId(v)}>
+            <Label>{quote?.status === "aprovado" ? "Técnico da proposta" : "Técnico (ao aprovar)"}</Label>
+            <Select disabled={quote?.status === "aprovado"} value={techId} onValueChange={(v: string) => setTechId(v)}>
               <SelectTrigger data-testid="quote-technician-select" className="w-full">
                 <SelectValue>{(v) => techLabel(v as string)}</SelectValue>
               </SelectTrigger>
@@ -308,8 +332,8 @@ export function QuoteFormDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} data-testid="quote-cancel-button">Cancelar</Button>
-          <Button onClick={submit} disabled={create.isPending} data-testid="create-quote-submit">
-            {create.isPending ? "Salvando…" : "Criar orçamento"}
+          <Button onClick={submit} disabled={save.isPending} data-testid="create-quote-submit">
+            {save.isPending ? "Salvando…" : quote ? "Salvar alterações" : "Criar orçamento"}
           </Button>
         </DialogFooter>
       </DialogContent>

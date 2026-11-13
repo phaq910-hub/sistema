@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from lib.auth import require_admin, require_tech
 from lib.db import db
+from lib.push import notify_order_assignment
 from lib.geo import geocode, road_route, straight_estimate
 import uuid
 
@@ -50,8 +51,8 @@ async def assign_order(order_id: str, body: AssignInput, request: Request, bg: B
     tech = await db.users.find_one({"id": body.technician_id, "role": "tech"})
     if not tech:
         raise HTTPException(status_code=400, detail="Técnico inválido")
-    await db.service_orders.update_one(
-        {"id": order_id},
+    result = await db.service_orders.update_one(
+        {"id": order_id, "status": order["status"], "technician_id": order.get("technician_id")},
         {
             "$set": {
                 "technician_id": tech["id"],
@@ -62,6 +63,10 @@ async def assign_order(order_id: str, body: AssignInput, request: Request, bg: B
             "$push": {"timeline": _event("atribuida", f"OS encaminhada para {tech['name']}")},
         },
     )
+    if not result.matched_count:
+        raise HTTPException(status_code=409, detail="A OS mudou. Atualize a lista e tente novamente.")
+    if order.get("technician_id") != tech["id"]:
+        bg.add_task(notify_order_assignment, order_id, tech["id"])
     if tech.get("phone"):
         origin = request.headers.get("origin", "")
         bg.add_task(send_message, tech["phone"], f"Techline: nova OS #{order['number']} para {order['client_name']}. Acesse {origin}/tecnico", "wa_notify_technician")

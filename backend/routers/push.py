@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from lib import push
-from lib.auth import current_user, require_admin
+from lib.auth import current_user
 from lib.db import db
 from models.schemas import User
 
@@ -41,7 +41,9 @@ async def public_key():
 
 @router.post("/push/subscribe")
 async def subscribe(body: PushSubscriptionIn, user: User = Depends(current_user)):
-    if not body.endpoint.startswith("https://"):
+    if not body.endpoint.startswith("https://") or (
+        user.role == "tech" and not push.supported_endpoint(body.endpoint)
+    ):
         raise HTTPException(status_code=400, detail="Assinatura inválida")
     await db.push_subscriptions.update_one(
         {"endpoint": body.endpoint},
@@ -52,13 +54,24 @@ async def subscribe(body: PushSubscriptionIn, user: User = Depends(current_user)
     return {"ok": True}
 
 
+@router.post("/push/status")
+async def subscription_status(body: PushEndpoint, user: User = Depends(current_user)):
+    subscription = await db.push_subscriptions.find_one(
+        {"endpoint": body.endpoint, "user_id": user.id, "role": user.role}, {"_id": 1}
+    )
+    return {"active": subscription is not None}
+
+
 @router.post("/push/unsubscribe")
 async def unsubscribe(body: PushEndpoint, user: User = Depends(current_user)):
-    await db.push_subscriptions.delete_one({"endpoint": body.endpoint, "user_id": user.id})
-    return {"ok": True}
+    result = await db.push_subscriptions.delete_one({"endpoint": body.endpoint, "user_id": user.id})
+    return {"ok": True, "removed": bool(result.deleted_count)}
 
 
 @router.post("/push/test", response_model=PushTestResult)
-async def test_push(_: User = Depends(require_admin)):
-    n = await push.notify_admins("Techline — teste", "As notificações do celular estão funcionando ✅", "/admin", "test")
+async def test_push(user: User = Depends(current_user)):
+    n = await push.notify_user(
+        user.id, user.role, "Techline — teste", "As notificações do celular estão funcionando ✅",
+        "/tecnico" if user.role == "tech" else "/admin", "test",
+    )
     return PushTestResult(devices=n)

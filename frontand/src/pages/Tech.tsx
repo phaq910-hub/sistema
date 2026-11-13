@@ -1,3 +1,4 @@
+import { PushToggle } from "@/components/PushToggle";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigation, Play, Flag, MapPin, Satellite, CheckCircle2, ExternalLink, FileCheck2 } from "lucide-react";
@@ -190,6 +191,7 @@ function OrderCard({ o, active, gps }: { o: ServiceOrder; active: boolean; gps: 
   );
 }
 
+
 function TechHome({ user }: { user: User }) {
   const { data: orders = [], isLoading } = useQuery({ queryKey: ["tech-orders"], queryFn: () => apiGet<ServiceOrder[]>("/tech/orders"), refetchInterval: 8000 });
   const activeOrder = orders.find((o) => o.status === "em_deslocamento" || o.status === "no_local" || o.status === "em_atendimento") ?? null;
@@ -201,9 +203,14 @@ function TechHome({ user }: { user: User }) {
     <div className="min-h-screen bg-[#0B0F17]">
       <AppHeader user={user} subtitle="App do técnico" />
       <main className="mx-auto max-w-xl space-y-6 px-4 py-6">
-        <div className="animate-rise">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">Olá, {user.name.split(" ")[0]}</p>
-          <h1 className="font-heading text-3xl font-extrabold">Minhas ordens de serviço</h1>
+        <div className="animate-rise flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">Olá, {user.name.split(" ")[0]}</p>
+            <h1 className="font-heading text-3xl font-extrabold">Minhas ordens de serviço</h1>
+          </div>
+          <div className="shrink-0">
+            <PushToggle key={user.id} technician />
+          </div>
         </div>
         {isLoading && <div className="h-40 animate-pulse rounded-2xl bg-white/5" />}
         {activeOrder && (
